@@ -7,19 +7,20 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 )
 
 type Stack struct {
 	Number   int
 	State    string
-	WaitTime string
+	WaitTime time.Duration
 	Frames   []Frame
 }
 
 func (s *Stack) Print() {
 	state := s.State
-	if s.WaitTime != "" {
-		state += ", " + s.WaitTime
+	if s.WaitTime != 0 {
+		state += ", " + s.WaitTime.String()
 	}
 	fmt.Printf("goroutine %d [%s]:\n", s.Number, s.WaitTime)
 	for _, f := range s.Frames {
@@ -53,6 +54,12 @@ func HasFrameMatching(pattern string) Filter {
 	}
 }
 
+func TimeGreaterThan(d time.Duration) Filter {
+	return func(s *Stack) bool {
+		return s.WaitTime >= d
+	}
+}
+
 func Negate(f Filter) Filter {
 	return func(s *Stack) bool {
 		return !f(s)
@@ -74,40 +81,6 @@ next:
 	return out
 }
 
-func main() {
-	if len(os.Args) < 2 {
-		fmt.Printf("usage: %s <filename>\n", os.Args[0])
-		return
-	}
-
-	var r io.Reader
-	fname := os.Args[1]
-	if fname == "-" {
-		r = os.Stdin
-	} else {
-		fi, err := os.Open(fname)
-		if err != nil {
-			panic(err)
-		}
-		defer fi.Close()
-
-		r = fi
-	}
-
-	stacks, err := ParseStacks(r)
-	if err != nil {
-		panic(err)
-	}
-
-	filters := []Filter{
-		HasFrameMatching("mfs"),
-	}
-
-	for _, s := range ApplyFilters(stacks, filters) {
-		s.Print()
-	}
-}
-
 func ParseStacks(r io.Reader) ([]*Stack, error) {
 
 	var cur *Stack
@@ -122,16 +95,26 @@ func ParseStacks(r io.Reader) ([]*Stack, error) {
 				return nil, fmt.Errorf("unexpected formatting: %s", scan.Text())
 			}
 
-			var time string
+			var timev time.Duration
 			state := strings.Split(strings.Trim(strings.Join(parts[2:], " "), "[]:"), ",")
 			if len(state) > 1 {
-				time = state[1]
+				timeparts := strings.Fields(state[1])
+				if len(timeparts) != 2 {
+					return nil, fmt.Errorf("weirdly formatted time string: %q", state[1])
+				}
+
+				val, err := strconv.Atoi(timeparts[0])
+				if err != nil {
+					return nil, err
+				}
+
+				timev = time.Duration(val) * time.Minute
 			}
 
 			cur = &Stack{
 				Number:   num,
 				State:    state[0],
-				WaitTime: time,
+				WaitTime: timev,
 			}
 			continue
 		}
@@ -148,6 +131,10 @@ func ParseStacks(r io.Reader) ([]*Stack, error) {
 		} else {
 			parts := strings.Split(scan.Text(), ":")
 			frame.File = strings.Trim(parts[0], " \t\n")
+			if len(parts) != 2 {
+				fmt.Printf("expected a colon: %q\n", scan.Text())
+				os.Exit(1)
+			}
 
 			lnum, err := strconv.Atoi(strings.Split(parts[1], " ")[0])
 			if err != nil {
@@ -165,4 +152,71 @@ func ParseStacks(r io.Reader) ([]*Stack, error) {
 	}
 
 	return stacks, nil
+}
+
+func main() {
+	if len(os.Args) < 2 {
+		fmt.Printf("usage: %s <filename>\n", os.Args[0])
+		return
+	}
+
+	var filters []Filter
+	fname := "-"
+
+	// parse flags
+	for _, a := range os.Args[1:] {
+		if strings.HasPrefix(a, "--") {
+			parts := strings.Split(a, "=")
+			if len(parts) != 2 {
+				fmt.Println("all flags must be --opt=val")
+				os.Exit(1)
+			}
+
+			switch parts[0] {
+			case "--frame-match":
+				filters = append(filters, HasFrameMatching(parts[1]))
+			case "--wait-more-than":
+				d, err := time.ParseDuration(parts[1])
+				if err != nil {
+					fmt.Println(err)
+					os.Exit(1)
+				}
+				filters = append(filters, TimeGreaterThan(d))
+			case "--wait-less-than":
+				d, err := time.ParseDuration(parts[1])
+				if err != nil {
+					fmt.Println(err)
+					os.Exit(1)
+				}
+				filters = append(filters, Negate(TimeGreaterThan(d)))
+			case "--frame-not-match":
+				filters = append(filters, Negate(HasFrameMatching(parts[1])))
+			}
+		} else {
+			fname = a
+			break
+		}
+	}
+
+	var r io.Reader
+	if fname == "-" {
+		r = os.Stdin
+	} else {
+		fi, err := os.Open(fname)
+		if err != nil {
+			panic(err)
+		}
+		defer fi.Close()
+
+		r = fi
+	}
+
+	stacks, err := ParseStacks(r)
+	if err != nil {
+		panic(err)
+	}
+
+	for _, s := range ApplyFilters(stacks, filters) {
+		s.Print()
+	}
 }
