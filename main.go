@@ -154,9 +154,22 @@ func ParseStacks(r io.Reader) ([]*Stack, error) {
 	return stacks, nil
 }
 
+func printHelp() {
+	fmt.Println("to filter out goroutines from the trace, use the following flags:")
+	fmt.Println("--frame-match=FOO")
+	fmt.Println("  print only stacks with frames that contain 'FOO'")
+	fmt.Println("--frame-not-match=FOO")
+	fmt.Println("  print only stacks with no frames containing 'FOO'")
+	fmt.Println("--wait-more-than=10m")
+	fmt.Println("  print only stacks that have been blocked for more than ten minutes")
+	fmt.Println("--wait-less-than=10m")
+	fmt.Println("  print only stacks that have been blocked for less than ten minutes")
+}
+
 func main() {
-	if len(os.Args) < 2 {
-		fmt.Printf("usage: %s <filename>\n", os.Args[0])
+	if len(os.Args) < 2 || os.Args[1] == "-h" || os.Args[1] == "--help" {
+		fmt.Printf("usage: %s <filter flags> <filename>\n", os.Args[0])
+		printHelp()
 		return
 	}
 
