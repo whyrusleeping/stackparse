@@ -1,158 +1,14 @@
 package main
 
 import (
-	"bufio"
 	"fmt"
 	"io"
 	"os"
-	"strconv"
 	"strings"
 	"time"
+
+	util "github.com/whyrusleeping/stackparse/util"
 )
-
-type Stack struct {
-	Number   int
-	State    string
-	WaitTime time.Duration
-	Frames   []Frame
-}
-
-func (s *Stack) Print() {
-	state := s.State
-	if s.WaitTime != 0 {
-		state += ", " + s.WaitTime.String()
-	}
-	fmt.Printf("goroutine %d [%s]:\n", s.Number, s.WaitTime)
-	for _, f := range s.Frames {
-		f.Print()
-	}
-
-	fmt.Println()
-}
-
-type Frame struct {
-	Function string
-	File     string
-	Line     int
-}
-
-func (f *Frame) Print() {
-	fmt.Println(f.Function)
-	fmt.Printf("\t%s:%d\n", f.File, f.Line)
-}
-
-type Filter func(s *Stack) bool
-
-func HasFrameMatching(pattern string) Filter {
-	return func(s *Stack) bool {
-		for _, f := range s.Frames {
-			if strings.Contains(f.Function, pattern) || strings.Contains(f.File, pattern) {
-				return true
-			}
-		}
-		return false
-	}
-}
-
-func TimeGreaterThan(d time.Duration) Filter {
-	return func(s *Stack) bool {
-		return s.WaitTime >= d
-	}
-}
-
-func Negate(f Filter) Filter {
-	return func(s *Stack) bool {
-		return !f(s)
-	}
-}
-
-func ApplyFilters(stacks []*Stack, filters []Filter) []*Stack {
-	var out []*Stack
-
-next:
-	for _, s := range stacks {
-		for _, f := range filters {
-			if !f(s) {
-				continue next
-			}
-		}
-		out = append(out, s)
-	}
-	return out
-}
-
-func ParseStacks(r io.Reader) ([]*Stack, error) {
-
-	var cur *Stack
-	var stacks []*Stack
-	var frame *Frame
-	scan := bufio.NewScanner(r)
-	for scan.Scan() {
-		if strings.HasPrefix(scan.Text(), "goroutine") {
-			parts := strings.Split(scan.Text(), " ")
-			num, err := strconv.Atoi(parts[1])
-			if err != nil {
-				return nil, fmt.Errorf("unexpected formatting: %s", scan.Text())
-			}
-
-			var timev time.Duration
-			state := strings.Split(strings.Trim(strings.Join(parts[2:], " "), "[]:"), ",")
-			if len(state) > 1 {
-				timeparts := strings.Fields(state[1])
-				if len(timeparts) != 2 {
-					return nil, fmt.Errorf("weirdly formatted time string: %q", state[1])
-				}
-
-				val, err := strconv.Atoi(timeparts[0])
-				if err != nil {
-					return nil, err
-				}
-
-				timev = time.Duration(val) * time.Minute
-			}
-
-			cur = &Stack{
-				Number:   num,
-				State:    state[0],
-				WaitTime: timev,
-			}
-			continue
-		}
-		if scan.Text() == "" {
-			stacks = append(stacks, cur)
-			cur = nil
-			continue
-		}
-
-		if frame == nil {
-			frame = &Frame{
-				Function: scan.Text(),
-			}
-		} else {
-			parts := strings.Split(scan.Text(), ":")
-			frame.File = strings.Trim(parts[0], " \t\n")
-			if len(parts) != 2 {
-				fmt.Printf("expected a colon: %q\n", scan.Text())
-				os.Exit(1)
-			}
-
-			lnum, err := strconv.Atoi(strings.Split(parts[1], " ")[0])
-			if err != nil {
-				return nil, fmt.Errorf("error finding line number: ", scan.Text())
-			}
-
-			frame.Line = lnum
-			cur.Frames = append(cur.Frames, *frame)
-			frame = nil
-		}
-	}
-
-	if cur != nil {
-		stacks = append(stacks, cur)
-	}
-
-	return stacks, nil
-}
 
 func printHelp() {
 	fmt.Println("to filter out goroutines from the trace, use the following flags:")
@@ -173,7 +29,7 @@ func main() {
 		return
 	}
 
-	var filters []Filter
+	var filters []util.Filter
 	fname := "-"
 
 	// parse flags
@@ -187,23 +43,23 @@ func main() {
 
 			switch parts[0] {
 			case "--frame-match":
-				filters = append(filters, HasFrameMatching(parts[1]))
+				filters = append(filters, util.HasFrameMatching(parts[1]))
 			case "--wait-more-than":
 				d, err := time.ParseDuration(parts[1])
 				if err != nil {
 					fmt.Println(err)
 					os.Exit(1)
 				}
-				filters = append(filters, TimeGreaterThan(d))
+				filters = append(filters, util.TimeGreaterThan(d))
 			case "--wait-less-than":
 				d, err := time.ParseDuration(parts[1])
 				if err != nil {
 					fmt.Println(err)
 					os.Exit(1)
 				}
-				filters = append(filters, Negate(TimeGreaterThan(d)))
+				filters = append(filters, util.Negate(util.TimeGreaterThan(d)))
 			case "--frame-not-match":
-				filters = append(filters, Negate(HasFrameMatching(parts[1])))
+				filters = append(filters, util.Negate(util.HasFrameMatching(parts[1])))
 			}
 		} else {
 			fname = a
@@ -224,12 +80,12 @@ func main() {
 		r = fi
 	}
 
-	stacks, err := ParseStacks(r)
+	stacks, err := util.ParseStacks(r)
 	if err != nil {
 		panic(err)
 	}
 
-	for _, s := range ApplyFilters(stacks, filters) {
+	for _, s := range util.ApplyFilters(stacks, filters) {
 		s.Print()
 	}
 }
