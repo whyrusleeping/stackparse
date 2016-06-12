@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"sort"
 	"strings"
 	"time"
 
@@ -20,6 +21,9 @@ func printHelp() {
 	fmt.Println("  print only stacks that have been blocked for more than ten minutes")
 	fmt.Println("--wait-less-than=10m")
 	fmt.Println("  print only stacks that have been blocked for less than ten minutes")
+	fmt.Println("\n")
+	fmt.Println("output is by default sorted by waittime ascending, to change this use:")
+	fmt.Println("--sort=[stacksize,goronum,waittime]")
 }
 
 func main() {
@@ -30,6 +34,7 @@ func main() {
 	}
 
 	var filters []util.Filter
+	var compfunc util.StackCompFunc = util.CompWaitTime
 	fname := "-"
 
 	// parse flags
@@ -60,10 +65,21 @@ func main() {
 				filters = append(filters, util.Negate(util.TimeGreaterThan(d)))
 			case "--frame-not-match":
 				filters = append(filters, util.Negate(util.HasFrameMatching(parts[1])))
+			case "--sort":
+				switch parts[1] {
+				case "goronum":
+					compfunc = util.CompGoroNum
+				case "stacksize":
+					compfunc = util.CompDepth
+				case "waittime":
+					compfunc = util.CompWaitTime
+				default:
+					fmt.Println("unknown sorting parameter: ", parts[1])
+					os.Exit(1)
+				}
 			}
 		} else {
 			fname = a
-			break
 		}
 	}
 
@@ -84,6 +100,13 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
+
+	sorter := util.StackSorter{
+		Stacks:   stacks,
+		CompFunc: compfunc,
+	}
+
+	sort.Sort(sorter)
 
 	for _, s := range util.ApplyFilters(stacks, filters) {
 		s.Print()

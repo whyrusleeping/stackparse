@@ -153,3 +153,33 @@ func ParseStacks(r io.Reader) ([]*Stack, error) {
 
 	return stacks, nil
 }
+
+type StackCompFunc func(a, b *Stack) bool
+type StackSorter struct {
+	Stacks   []*Stack
+	CompFunc StackCompFunc
+}
+
+func (ss StackSorter) Len() int {
+	return len(ss.Stacks)
+}
+
+func (ss StackSorter) Less(i, j int) bool {
+	return ss.CompFunc(ss.Stacks[i], ss.Stacks[j])
+}
+
+func (ss StackSorter) Swap(i, j int) {
+	ss.Stacks[i], ss.Stacks[j] = ss.Stacks[j], ss.Stacks[i]
+}
+
+func CompWaitTime(a, b *Stack) bool {
+	return a.WaitTime < b.WaitTime
+}
+
+func CompDepth(a, b *Stack) bool {
+	return len(a.Frames) < len(b.Frames)
+}
+
+func CompGoroNum(a, b *Stack) bool {
+	return a.Number < b.Number
+}
