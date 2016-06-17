@@ -35,6 +35,7 @@ func main() {
 
 	var filters []util.Filter
 	var compfunc util.StackCompFunc = util.CompWaitTime
+	outputType := "full"
 	fname := "-"
 
 	// parse flags
@@ -75,8 +76,19 @@ func main() {
 					compfunc = util.CompWaitTime
 				default:
 					fmt.Println("unknown sorting parameter: ", parts[1])
+					fmt.Println("options: goronum, stacksize, waittime (default)")
 					os.Exit(1)
 				}
+			case "--output":
+				switch parts[1] {
+				case "full", "top":
+					outputType = parts[1]
+				default:
+					fmt.Println("unrecognized output type: ", parts[1])
+					fmt.Println("valid options are: full, top")
+					os.Exit(1)
+				}
+
 			}
 		} else {
 			fname = a
@@ -107,6 +119,9 @@ func main() {
 	}
 
 	sort.Sort(sorter)
+
+	// TODO: respect outputType
+	_ = outputType
 
 	for _, s := range util.ApplyFilters(stacks, filters) {
 		s.Print()
