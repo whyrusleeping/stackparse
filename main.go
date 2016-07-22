@@ -6,6 +6,7 @@ import (
 	"os"
 	"sort"
 	"strings"
+	"text/tabwriter"
 	"time"
 
 	util "github.com/whyrusleeping/stackparse/util"
@@ -42,30 +43,32 @@ func main() {
 	for _, a := range os.Args[1:] {
 		if strings.HasPrefix(a, "--") {
 			parts := strings.Split(a, "=")
-			if len(parts) != 2 {
-				fmt.Println("all flags must be --opt=val")
-				os.Exit(1)
+			var key string
+			var val string
+			key = parts[0]
+			if len(parts) == 2 {
+				val = parts[1]
 			}
 
-			switch parts[0] {
+			switch key {
 			case "--frame-match":
-				filters = append(filters, util.HasFrameMatching(parts[1]))
+				filters = append(filters, util.HasFrameMatching(val))
 			case "--wait-more-than":
-				d, err := time.ParseDuration(parts[1])
+				d, err := time.ParseDuration(val)
 				if err != nil {
 					fmt.Println(err)
 					os.Exit(1)
 				}
 				filters = append(filters, util.TimeGreaterThan(d))
 			case "--wait-less-than":
-				d, err := time.ParseDuration(parts[1])
+				d, err := time.ParseDuration(val)
 				if err != nil {
 					fmt.Println(err)
 					os.Exit(1)
 				}
 				filters = append(filters, util.Negate(util.TimeGreaterThan(d)))
 			case "--frame-not-match":
-				filters = append(filters, util.Negate(util.HasFrameMatching(parts[1])))
+				filters = append(filters, util.Negate(util.HasFrameMatching(val)))
 			case "--sort":
 				switch parts[1] {
 				case "goronum":
@@ -75,20 +78,21 @@ func main() {
 				case "waittime":
 					compfunc = util.CompWaitTime
 				default:
-					fmt.Println("unknown sorting parameter: ", parts[1])
+					fmt.Println("unknown sorting parameter: ", val)
 					fmt.Println("options: goronum, stacksize, waittime (default)")
 					os.Exit(1)
 				}
 			case "--output":
-				switch parts[1] {
-				case "full", "top":
-					outputType = parts[1]
+				switch val {
+				case "full", "top", "summary":
+					outputType = val
 				default:
 					fmt.Println("unrecognized output type: ", parts[1])
 					fmt.Println("valid options are: full, top")
 					os.Exit(1)
 				}
-
+			case "--summary":
+				outputType = "summary"
 			}
 		} else {
 			fname = a
@@ -101,7 +105,8 @@ func main() {
 	} else {
 		fi, err := os.Open(fname)
 		if err != nil {
-			panic(err)
+			fmt.Println(err)
+			os.Exit(1)
 		}
 		defer fi.Close()
 
@@ -123,7 +128,43 @@ func main() {
 	// TODO: respect outputType
 	_ = outputType
 
-	for _, s := range util.ApplyFilters(stacks, filters) {
-		s.Print()
+	switch outputType {
+	case "full":
+		for _, s := range util.ApplyFilters(stacks, filters) {
+			s.Print()
+		}
+	case "summary":
+		printSummary(util.ApplyFilters(stacks, filters))
+	default:
+		fmt.Println("unrecognized output type: ", outputType)
+		os.Exit(1)
 	}
+}
+
+func printSummary(stacks []*util.Stack) {
+	counts := make(map[string]int)
+
+	var filtered []*util.Stack
+
+	for _, s := range stacks {
+		f := s.Frames[0].Function
+		if counts[f] == 0 {
+			filtered = append(filtered, s)
+		}
+		counts[f]++
+	}
+
+	sort.Sort(util.StackSorter{
+		Stacks: filtered,
+		CompFunc: func(a, b *util.Stack) bool {
+			return counts[a.Frames[0].Function] < counts[b.Frames[0].Function]
+		},
+	})
+
+	tw := tabwriter.NewWriter(os.Stdout, 8, 4, 2, ' ', 0)
+	for _, s := range filtered {
+		f := s.Frames[0].Function
+		fmt.Fprintf(tw, "%s\t%d\n", f, counts[f])
+	}
+	tw.Flush()
 }

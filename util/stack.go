@@ -32,12 +32,13 @@ func (s *Stack) Print() {
 
 type Frame struct {
 	Function string
+	Params   []string
 	File     string
 	Line     int
 }
 
 func (f *Frame) Print() {
-	fmt.Println(f.Function)
+	fmt.Println(f.Function, f.Params)
 	fmt.Printf("\t%s:%d\n", f.File, f.Line)
 }
 
@@ -128,6 +129,13 @@ func ParseStacks(r io.Reader) ([]*Stack, error) {
 			frame = &Frame{
 				Function: scan.Text(),
 			}
+
+			n := strings.LastIndexByte(scan.Text(), '(')
+			if n > -1 {
+				frame.Function = scan.Text()[:n]
+				frame.Params = strings.Fields(scan.Text()[n+1 : len(scan.Text())-1])
+			}
+
 		} else {
 			parts := strings.Split(scan.Text(), ":")
 			frame.File = strings.Trim(parts[0], " \t\n")
