@@ -156,7 +156,7 @@ func ParseStacks(r io.Reader) ([]*Stack, error) {
 
 			lnum, err := strconv.Atoi(strings.Split(parts[1], " ")[0])
 			if err != nil {
-				return nil, fmt.Errorf("error finding line number: ", scan.Text())
+				return nil, fmt.Errorf("error finding line number: %s", scan.Text())
 			}
 
 			frame.Line = lnum
