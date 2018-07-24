@@ -11,10 +11,11 @@ import (
 )
 
 type Stack struct {
-	Number   int
-	State    string
-	WaitTime time.Duration
-	Frames   []Frame
+	Number       int
+	State        string
+	WaitTime     time.Duration
+	Frames       []Frame
+	ThreadLocked bool
 }
 
 func (s *Stack) Print() {
@@ -98,7 +99,15 @@ func ParseStacks(r io.Reader) ([]*Stack, error) {
 
 			var timev time.Duration
 			state := strings.Split(strings.Trim(strings.Join(parts[2:], " "), "[]:"), ",")
-			if len(state) > 1 {
+			locked := false
+			// The first field is always the state. The second and
+			// third are the time and whether or not it's locked to
+			// the current thread. However, either or both of these fields can be omitted.
+			for _, s := range state[1:] {
+				if s == " locked to thread" {
+					locked = true
+					continue
+				}
 				timeparts := strings.Fields(state[1])
 				if len(timeparts) != 2 {
 					return nil, fmt.Errorf("weirdly formatted time string: %q", state[1])
@@ -113,9 +122,10 @@ func ParseStacks(r io.Reader) ([]*Stack, error) {
 			}
 
 			cur = &Stack{
-				Number:   num,
-				State:    state[0],
-				WaitTime: timev,
+				Number:       num,
+				State:        state[0],
+				WaitTime:     timev,
+				ThreadLocked: locked,
 			}
 			continue
 		}
@@ -146,7 +156,7 @@ func ParseStacks(r io.Reader) ([]*Stack, error) {
 
 			lnum, err := strconv.Atoi(strings.Split(parts[1], " ")[0])
 			if err != nil {
-				return nil, fmt.Errorf("error finding line number: ", scan.Text())
+				return nil, fmt.Errorf("error finding line number: %s", scan.Text())
 			}
 
 			frame.Line = lnum
