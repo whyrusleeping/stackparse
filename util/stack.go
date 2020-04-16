@@ -21,8 +21,9 @@ type Stack struct {
 
 func (s *Stack) Print() {
 	state := s.State
-	if s.WaitTime != 0 {
-		state += ", " + s.WaitTime.String()
+	waitTime := int(s.WaitTime.Minutes())
+	if waitTime != 0 {
+		state += ", " + fmt.Sprintf("%d minutes", waitTime)
 	}
 	fmt.Printf("goroutine %d [%s]:\n", s.Number, state)
 	for _, f := range s.Frames {
