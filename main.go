@@ -39,6 +39,8 @@ func main() {
 	outputType := "full"
 	fname := "-"
 
+	var linePrefix string
+
 	// parse flags
 	for _, a := range os.Args[1:] {
 		if strings.HasPrefix(a, "--") {
@@ -69,6 +71,10 @@ func main() {
 				filters = append(filters, util.Negate(util.TimeGreaterThan(d)))
 			case "--frame-not-match":
 				filters = append(filters, util.Negate(util.HasFrameMatching(val)))
+			case "--state-match":
+				filters = append(filters, util.MatchState(val))
+			case "--state-not-match":
+				filters = append(filters, util.Negate(util.MatchState(val)))
 			case "--sort":
 				switch parts[1] {
 				case "goronum":
@@ -82,6 +88,9 @@ func main() {
 					fmt.Println("options: goronum, stacksize, waittime (default)")
 					os.Exit(1)
 				}
+			case "--line-prefix":
+				linePrefix = val
+
 			case "--output":
 				switch val {
 				case "full", "top", "summary":
@@ -113,7 +122,7 @@ func main() {
 		r = fi
 	}
 
-	stacks, err := util.ParseStacks(r)
+	stacks, err := util.ParseStacks(r, linePrefix)
 	if err != nil {
 		panic(err)
 	}

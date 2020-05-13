@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -23,7 +24,7 @@ func (s *Stack) Print() {
 	if s.WaitTime != 0 {
 		state += ", " + s.WaitTime.String()
 	}
-	fmt.Printf("goroutine %d [%s]:\n", s.Number, s.WaitTime)
+	fmt.Printf("goroutine %d [%s]:\n", s.Number, state)
 	for _, f := range s.Frames {
 		f.Print()
 	}
@@ -56,6 +57,12 @@ func HasFrameMatching(pattern string) Filter {
 	}
 }
 
+func MatchState(st string) Filter {
+	return func(s *Stack) bool {
+		return s.State == st
+	}
+}
+
 func TimeGreaterThan(d time.Duration) Filter {
 	return func(s *Stack) bool {
 		return s.WaitTime >= d
@@ -83,18 +90,44 @@ next:
 	return out
 }
 
-func ParseStacks(r io.Reader) ([]*Stack, error) {
+func ParseStacks(r io.Reader, linePrefix string) ([]*Stack, error) {
+
+	var re *regexp.Regexp
+
+	if linePrefix != "" {
+		r, err := regexp.Compile(linePrefix)
+		if err != nil {
+			return nil, fmt.Errorf("failed to compile line prefix regexp")
+		}
+		re = r
+	}
 
 	var cur *Stack
 	var stacks []*Stack
 	var frame *Frame
 	scan := bufio.NewScanner(r)
 	for scan.Scan() {
-		if strings.HasPrefix(scan.Text(), "goroutine") {
-			parts := strings.Split(scan.Text(), " ")
+		line := scan.Text()
+		if re != nil {
+			pref := re.Find([]byte(line))
+			if len(pref) == len(line) {
+				line = ""
+			} else {
+				line = line[len(pref):]
+				line = strings.TrimSpace(line)
+			}
+		}
+
+		if strings.HasPrefix(line, "goroutine") {
+			if cur != nil {
+				stacks = append(stacks, cur)
+				cur = nil
+			}
+
+			parts := strings.Split(line, " ")
 			num, err := strconv.Atoi(parts[1])
 			if err != nil {
-				return nil, fmt.Errorf("unexpected formatting: %s", scan.Text())
+				return nil, fmt.Errorf("unexpected formatting: %s", line)
 			}
 
 			var timev time.Duration
@@ -129,7 +162,7 @@ func ParseStacks(r io.Reader) ([]*Stack, error) {
 			}
 			continue
 		}
-		if scan.Text() == "" {
+		if line == "" {
 			stacks = append(stacks, cur)
 			cur = nil
 			continue
@@ -137,26 +170,26 @@ func ParseStacks(r io.Reader) ([]*Stack, error) {
 
 		if frame == nil {
 			frame = &Frame{
-				Function: scan.Text(),
+				Function: line,
 			}
 
-			n := strings.LastIndexByte(scan.Text(), '(')
+			n := strings.LastIndexByte(line, '(')
 			if n > -1 {
-				frame.Function = scan.Text()[:n]
-				frame.Params = strings.Fields(scan.Text()[n+1 : len(scan.Text())-1])
+				frame.Function = line[:n]
+				frame.Params = strings.Fields(line[n+1 : len(line)-1])
 			}
 
 		} else {
-			parts := strings.Split(scan.Text(), ":")
+			parts := strings.Split(line, ":")
 			frame.File = strings.Trim(parts[0], " \t\n")
 			if len(parts) != 2 {
-				fmt.Printf("expected a colon: %q\n", scan.Text())
+				fmt.Printf("expected a colon: %q\n", line)
 				os.Exit(1)
 			}
 
 			lnum, err := strconv.Atoi(strings.Split(parts[1], " ")[0])
 			if err != nil {
-				return nil, fmt.Errorf("error finding line number: %s", scan.Text())
+				return nil, fmt.Errorf("error finding line number: %s", line)
 			}
 
 			frame.Line = lnum
