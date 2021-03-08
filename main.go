@@ -13,18 +13,31 @@ import (
 )
 
 func printHelp() {
-	fmt.Println("to filter out goroutines from the trace, use the following flags:")
-	fmt.Println("--frame-match=FOO")
-	fmt.Println("  print only stacks with frames that contain 'FOO'")
-	fmt.Println("--frame-not-match=FOO")
-	fmt.Println("  print only stacks with no frames containing 'FOO'")
-	fmt.Println("--wait-more-than=10m")
-	fmt.Println("  print only stacks that have been blocked for more than ten minutes")
-	fmt.Println("--wait-less-than=10m")
-	fmt.Println("  print only stacks that have been blocked for less than ten minutes")
-	fmt.Println("\n")
-	fmt.Println("output is by default sorted by waittime ascending, to change this use:")
-	fmt.Println("--sort=[stacksize,goronum,waittime]")
+	helpstr := `
+To filter out goroutines from the trace, use the following flags:
+--frame-match=FOO or --fm=FOO
+  print only stacks with frames that contain 'FOO'
+--frame-not-match=FOO or --fnm=FOO
+  print only stacks with no frames containing 'FOO'
+--wait-more-than=10m
+  print only stacks that have been blocked for more than ten minutes
+--wait-less-than=10m
+  print only stacks that have been blocked for less than ten minutes
+--state-match=FOO
+  print only stacks whose state matches 'FOO'
+--state-not-match=FOO
+  print only stacks whose state matches 'FOO'
+
+Output is by default sorted by waittime ascending, to change this use:
+--sort=[stacksize,goronum,waittime]
+
+To print a summary of the goroutines in the stack trace, use:
+--summary
+
+If your stacks have some prefix to them (like a systemd log prefix) trim it with:
+--line-prefix=prefixRegex
+`
+	fmt.Println(helpstr)
 }
 
 func main() {
