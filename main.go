@@ -43,7 +43,7 @@ func main() {
 
 	// parse flags
 	for _, a := range os.Args[1:] {
-		if strings.HasPrefix(a, "--") {
+		if strings.HasPrefix(a, "-") {
 			parts := strings.Split(a, "=")
 			var key string
 			var val string
@@ -53,7 +53,7 @@ func main() {
 			}
 
 			switch key {
-			case "--frame-match":
+			case "--frame-match", "--fm":
 				filters = append(filters, util.HasFrameMatching(val))
 			case "--wait-more-than":
 				d, err := time.ParseDuration(val)
@@ -69,7 +69,7 @@ func main() {
 					os.Exit(1)
 				}
 				filters = append(filters, util.Negate(util.TimeGreaterThan(d)))
-			case "--frame-not-match":
+			case "--frame-not-match", "--fnm":
 				filters = append(filters, util.Negate(util.HasFrameMatching(val)))
 			case "--state-match":
 				filters = append(filters, util.MatchState(val))
@@ -100,7 +100,7 @@ func main() {
 					fmt.Println("valid options are: full, top")
 					os.Exit(1)
 				}
-			case "--summary":
+			case "--summary", "-s":
 				outputType = "summary"
 			}
 		} else {
