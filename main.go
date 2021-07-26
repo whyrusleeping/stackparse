@@ -137,7 +137,8 @@ func main() {
 
 	stacks, err := util.ParseStacks(r, linePrefix)
 	if err != nil {
-		panic(err)
+		fmt.Println(err)
+		os.Exit(1)
 	}
 
 	sorter := util.StackSorter{

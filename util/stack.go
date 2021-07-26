@@ -4,8 +4,8 @@ import (
 	"bufio"
 	"fmt"
 	"io"
-	"os"
 	"regexp"
+	"runtime/debug"
 	"strconv"
 	"strings"
 	"time"
@@ -96,8 +96,7 @@ next:
 	return out
 }
 
-func ParseStacks(r io.Reader, linePrefix string) ([]*Stack, error) {
-
+func ParseStacks(r io.Reader, linePrefix string) (_ []*Stack, _err error) {
 	var re *regexp.Regexp
 
 	if linePrefix != "" {
@@ -108,11 +107,23 @@ func ParseStacks(r io.Reader, linePrefix string) ([]*Stack, error) {
 		re = r
 	}
 
+	// Catch parsing errors and recover. There's no reason to crash the entire parser.
+	// Also report the line number where the error happened.
+	lineNo := 0
+	defer func() {
+		if r := recover(); r != nil {
+			_err = fmt.Errorf("line %d: [panic] %s\n%s", lineNo, r, debug.Stack())
+		} else if _err != nil {
+			_err = fmt.Errorf("line %d: %w", lineNo, _err)
+		}
+	}()
+
 	var cur *Stack
 	var stacks []*Stack
 	var frame *Frame
 	scan := bufio.NewScanner(r)
 	for scan.Scan() {
+		lineNo++
 		line := scan.Text()
 		if re != nil {
 			pref := re.Find([]byte(line))
@@ -192,8 +203,7 @@ func ParseStacks(r io.Reader, linePrefix string) ([]*Stack, error) {
 			parts := strings.Split(line, ":")
 			frame.File = strings.Trim(parts[0], " \t\n")
 			if len(parts) != 2 {
-				fmt.Printf("expected a colon: %q\n", line)
-				os.Exit(1)
+				return nil, fmt.Errorf("expected a colon: %q", line)
 			}
 
 			var err error
