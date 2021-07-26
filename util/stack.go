@@ -21,8 +21,9 @@ type Stack struct {
 
 func (s *Stack) Print() {
 	state := s.State
-	if s.WaitTime != 0 {
-		state += ", " + s.WaitTime.String()
+	waitTime := int(s.WaitTime.Minutes())
+	if waitTime != 0 {
+		state += ", " + fmt.Sprintf("%d minutes", waitTime)
 	}
 	fmt.Printf("goroutine %d [%s]:\n", s.Number, state)
 	for _, f := range s.Frames {
@@ -36,12 +37,17 @@ type Frame struct {
 	Function string
 	Params   []string
 	File     string
-	Line     int
+	Line     int64
+	Entry    int64
 }
 
 func (f *Frame) Print() {
-	fmt.Println(f.Function, f.Params)
-	fmt.Printf("\t%s:%d\n", f.File, f.Line)
+	fmt.Printf("%s(%s)\n", f.Function, strings.Join(f.Params, ", "))
+	fmt.Printf("\t%s:%d", f.File, f.Line)
+	if f.Entry != 0 {
+		fmt.Printf(" %+#x", f.Entry)
+	}
+	fmt.Println()
 }
 
 type Filter func(s *Stack) bool
@@ -176,7 +182,7 @@ func ParseStacks(r io.Reader, linePrefix string) ([]*Stack, error) {
 			n := strings.LastIndexByte(line, '(')
 			if n > -1 {
 				frame.Function = line[:n]
-				frame.Params = strings.Fields(line[n+1 : len(line)-1])
+				frame.Params = strings.Split(line[n+1:len(line)-1], ", ")
 			}
 
 		} else {
@@ -187,12 +193,19 @@ func ParseStacks(r io.Reader, linePrefix string) ([]*Stack, error) {
 				os.Exit(1)
 			}
 
-			lnum, err := strconv.Atoi(strings.Split(parts[1], " ")[0])
+			var err error
+			lineAndEntry := strings.Split(parts[1], " ")
+			frame.Line, err = strconv.ParseInt(lineAndEntry[0], 0, 64)
 			if err != nil {
-				return nil, fmt.Errorf("error finding line number: %s", line)
+				return nil, fmt.Errorf("error parsing line number: %s", line)
+			}
+			if len(lineAndEntry) > 1 {
+				frame.Entry, err = strconv.ParseInt(lineAndEntry[1], 0, 64)
+				if err != nil {
+					return nil, fmt.Errorf("error parsing entry offset: %s", line)
+				}
 			}
 
-			frame.Line = lnum
 			cur.Frames = append(cur.Frames, *frame)
 			frame = nil
 		}
