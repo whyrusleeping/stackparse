@@ -169,7 +169,10 @@ func ParseStacks(r io.Reader, linePrefix string) ([]*Stack, error) {
 			continue
 		}
 		if line == "" {
-			stacks = append(stacks, cur)
+			// This can happen when we get random empty lines.
+			if cur != nil {
+				stacks = append(stacks, cur)
+			}
 			cur = nil
 			continue
 		}
