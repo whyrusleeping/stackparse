@@ -55,7 +55,7 @@ type Filter func(s *Stack) bool
 func HasFrameMatching(pattern string) Filter {
 	return func(s *Stack) bool {
 		for _, f := range s.Frames {
-			if strings.Contains(f.Function, pattern) || strings.Contains(f.File, pattern) {
+			if strings.Contains(f.Function, pattern) || strings.Contains(fmt.Sprintf("%s:%d", f.File, f.Line), pattern) {
 				return true
 			}
 		}
