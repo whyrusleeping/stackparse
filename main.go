@@ -41,7 +41,7 @@ If your stacks have some prefix to them (like a systemd log prefix) trim it with
 }
 
 func main() {
-	if len(os.Args) < 2 || os.Args[1] == "-h" || os.Args[1] == "--help" {
+	if len(os.Args) > 1 && (os.Args[1] == "-h" || os.Args[1] == "--help") {
 		fmt.Printf("usage: %s <filter flags> <filename>\n", os.Args[0])
 		printHelp()
 		return
