@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -36,6 +37,9 @@ To print a summary of the goroutines in the stack trace, use:
 
 If your stacks have some prefix to them (like a systemd log prefix) trim it with:
 --line-prefix=prefixRegex
+
+To print the output in JSON format, use:
+--json or -j
 `
 	fmt.Println(helpstr)
 }
@@ -50,6 +54,7 @@ func main() {
 	var filters []util.Filter
 	var compfunc util.StackCompFunc = util.CompWaitTime
 	outputType := "full"
+	formatType := "default"
 	fname := "-"
 
 	var linePrefix string
@@ -110,11 +115,14 @@ func main() {
 					outputType = val
 				default:
 					fmt.Println("unrecognized output type: ", parts[1])
-					fmt.Println("valid options are: full, top")
+					fmt.Println("valid options are: full, top, summary, json")
 					os.Exit(1)
 				}
 			case "--summary", "-s":
 				outputType = "summary"
+
+			case "--json", "-j":
+				formatType = "json"
 			}
 		} else {
 			fname = a
@@ -148,23 +156,91 @@ func main() {
 
 	sort.Sort(sorter)
 
+	var f formatter
+	switch formatType {
+	case "default":
+		f = &defaultFormatter{}
+	case "json":
+		f = &jsonFormatter{}
+	}
+
 	// TODO: respect outputType
 	_ = outputType
 
+	stacks = util.ApplyFilters(stacks, filters)
+
+	var (
+		outputStr string
+		formatErr error
+	)
+
 	switch outputType {
 	case "full":
-		for _, s := range util.ApplyFilters(stacks, filters) {
-			s.Print()
-		}
+		outputStr, formatErr = f.formatStacks(stacks)
 	case "summary":
-		printSummary(util.ApplyFilters(stacks, filters))
+		outputStr, formatErr = f.formatSummaries(summarize(stacks))
 	default:
 		fmt.Println("unrecognized output type: ", outputType)
 		os.Exit(1)
 	}
+	if formatErr != nil {
+		fmt.Println(err)
+		os.Exit(1)
+	}
+	fmt.Println(outputStr)
+
 }
 
-func printSummary(stacks []*util.Stack) {
+type summary struct {
+	Function string
+	Count    int
+}
+
+type formatter interface {
+	formatSummaries([]summary) (string, error)
+	formatStacks([]*util.Stack) (string, error)
+}
+
+type defaultFormatter struct{}
+
+func (t *defaultFormatter) formatSummaries(summaries []summary) (string, error) {
+	sb := &strings.Builder{}
+	tw := tabwriter.NewWriter(sb, 8, 4, 2, ' ', 0)
+	for _, s := range summaries {
+		fmt.Fprintf(tw, "%s\t%d\n", s.Function, s.Count)
+	}
+	tw.Flush()
+	return sb.String(), nil
+}
+
+func (t *defaultFormatter) formatStacks(stacks []*util.Stack) (string, error) {
+	sb := &strings.Builder{}
+	for _, s := range stacks {
+		sb.WriteString(s.String())
+		sb.WriteRune('\n')
+	}
+	return sb.String(), nil
+}
+
+type jsonFormatter struct{}
+
+func (j *jsonFormatter) formatSummaries(summaries []summary) (string, error) {
+	b, err := json.Marshal(summaries)
+	if err != nil {
+		return "", err
+	}
+	return string(b), nil
+}
+
+func (j *jsonFormatter) formatStacks(stacks []*util.Stack) (string, error) {
+	b, err := json.Marshal(stacks)
+	if err != nil {
+		return "", err
+	}
+	return string(b), err
+}
+
+func summarize(stacks []*util.Stack) []summary {
 	counts := make(map[string]int)
 
 	var filtered []*util.Stack
@@ -184,10 +260,12 @@ func printSummary(stacks []*util.Stack) {
 		},
 	})
 
-	tw := tabwriter.NewWriter(os.Stdout, 8, 4, 2, ' ', 0)
+	var summaries []summary
 	for _, s := range filtered {
-		f := s.Frames[0].Function
-		fmt.Fprintf(tw, "%s\t%d\n", f, counts[f])
+		summaries = append(summaries, summary{
+			Function: s.Frames[0].Function,
+			Count:    counts[s.Frames[0].Function],
+		})
 	}
-	tw.Flush()
+	return summaries
 }

@@ -20,19 +20,21 @@ type Stack struct {
 	CreatedBy    CreatedBy
 }
 
-func (s *Stack) Print() {
+func (s *Stack) String() string {
+	sb := strings.Builder{}
 	state := s.State
 	waitTime := int(s.WaitTime.Minutes())
 	if waitTime != 0 {
 		state += ", " + fmt.Sprintf("%d minutes", waitTime)
 	}
-	fmt.Printf("goroutine %d [%s]:\n", s.Number, state)
+	sb.WriteString(fmt.Sprintf("goroutine %d [%s]:\n", s.Number, state))
 	for _, f := range s.Frames {
-		f.Print()
+		sb.WriteString(f.String())
+		sb.WriteRune('\n')
 	}
-	s.CreatedBy.Print()
-
-	fmt.Println()
+	sb.WriteString(s.CreatedBy.String())
+	sb.WriteRune('\n')
+	return sb.String()
 }
 
 type Frame struct {
@@ -43,13 +45,14 @@ type Frame struct {
 	Entry    int64
 }
 
-func (f *Frame) Print() {
-	fmt.Printf("%s(%s)\n", f.Function, strings.Join(f.Params, ", "))
-	fmt.Printf("\t%s:%d", f.File, f.Line)
+func (f *Frame) String() string {
+	sb := strings.Builder{}
+	sb.WriteString(fmt.Sprintf("%s(%s)\n", f.Function, strings.Join(f.Params, ", ")))
+	sb.WriteString(fmt.Sprintf("\t%s:%d", f.File, f.Line))
 	if f.Entry != 0 {
-		fmt.Printf(" %+#x", f.Entry)
+		sb.WriteString(fmt.Sprintf(" %+#x", f.Entry))
 	}
-	fmt.Println()
+	return sb.String()
 }
 
 type CreatedBy struct {
@@ -59,13 +62,14 @@ type CreatedBy struct {
 	Entry    int64
 }
 
-func (c *CreatedBy) Print() {
-	fmt.Printf("created by %s\n", c.Function)
-	fmt.Printf("\t%s:%d", c.File, c.Line)
+func (c *CreatedBy) String() string {
+	sb := strings.Builder{}
+	sb.WriteString(fmt.Sprintf("created by %s\n", c.Function))
+	sb.WriteString(fmt.Sprintf("\t%s:%d", c.File, c.Line))
 	if c.Entry != 0 {
-		fmt.Printf(" %+#x", c.Entry)
+		sb.WriteString(fmt.Sprintf(" %+#x", c.Entry))
 	}
-	fmt.Println()
+	return sb.String()
 }
 
 type Filter func(s *Stack) bool
