@@ -1,11 +1,13 @@
 package main
 
 import (
+	"bufio"
 	"encoding/json"
 	"fmt"
 	"io"
 	"os"
 	"sort"
+	"strconv"
 	"strings"
 	"text/tabwriter"
 	"time"
@@ -59,6 +61,8 @@ func main() {
 
 	var linePrefix string
 
+	var repl bool
+
 	// parse flags
 	for _, a := range os.Args[1:] {
 		if strings.HasPrefix(a, "-") {
@@ -109,6 +113,8 @@ func main() {
 			case "--line-prefix":
 				linePrefix = val
 
+			case "--repl":
+				repl = true
 			case "--output":
 				switch val {
 				case "full", "top", "summary":
@@ -164,31 +170,28 @@ func main() {
 		f = &jsonFormatter{}
 	}
 
-	// TODO: respect outputType
-	_ = outputType
-
 	stacks = util.ApplyFilters(stacks, filters)
 
-	var (
-		outputStr string
-		formatErr error
-	)
+	var formatErr error
 
 	switch outputType {
 	case "full":
-		outputStr, formatErr = f.formatStacks(stacks)
+		formatErr = f.formatStacks(os.Stdout, stacks)
 	case "summary":
-		outputStr, formatErr = f.formatSummaries(summarize(stacks))
+		formatErr = f.formatSummaries(os.Stdout, summarize(stacks))
 	default:
 		fmt.Println("unrecognized output type: ", outputType)
 		os.Exit(1)
 	}
+
 	if formatErr != nil {
 		fmt.Println(err)
 		os.Exit(1)
 	}
-	fmt.Println(outputStr)
 
+	if repl {
+		runRepl(util.ApplyFilters(stacks, filters))
+	}
 }
 
 type summary struct {
@@ -197,47 +200,36 @@ type summary struct {
 }
 
 type formatter interface {
-	formatSummaries([]summary) (string, error)
-	formatStacks([]*util.Stack) (string, error)
+	formatSummaries(io.Writer, []summary) error
+	formatStacks(io.Writer, []*util.Stack) error
 }
 
 type defaultFormatter struct{}
 
-func (t *defaultFormatter) formatSummaries(summaries []summary) (string, error) {
-	sb := &strings.Builder{}
-	tw := tabwriter.NewWriter(sb, 8, 4, 2, ' ', 0)
+func (t *defaultFormatter) formatSummaries(w io.Writer, summaries []summary) error {
+	tw := tabwriter.NewWriter(w, 8, 4, 2, ' ', 0)
 	for _, s := range summaries {
 		fmt.Fprintf(tw, "%s\t%d\n", s.Function, s.Count)
 	}
 	tw.Flush()
-	return sb.String(), nil
+	return nil
 }
 
-func (t *defaultFormatter) formatStacks(stacks []*util.Stack) (string, error) {
-	sb := &strings.Builder{}
+func (t *defaultFormatter) formatStacks(w io.Writer, stacks []*util.Stack) error {
 	for _, s := range stacks {
-		sb.WriteString(s.String())
-		sb.WriteRune('\n')
+		fmt.Fprintln(w, s.String())
 	}
-	return sb.String(), nil
+	return nil
 }
 
 type jsonFormatter struct{}
 
-func (j *jsonFormatter) formatSummaries(summaries []summary) (string, error) {
-	b, err := json.Marshal(summaries)
-	if err != nil {
-		return "", err
-	}
-	return string(b), nil
+func (j *jsonFormatter) formatSummaries(w io.Writer, summaries []summary) error {
+	return json.NewEncoder(w).Encode(summaries)
 }
 
-func (j *jsonFormatter) formatStacks(stacks []*util.Stack) (string, error) {
-	b, err := json.Marshal(stacks)
-	if err != nil {
-		return "", err
-	}
-	return string(b), err
+func (j *jsonFormatter) formatStacks(w io.Writer, stacks []*util.Stack) error {
+	return json.NewEncoder(w).Encode(stacks)
 }
 
 func summarize(stacks []*util.Stack) []summary {
@@ -268,4 +260,114 @@ func summarize(stacks []*util.Stack) []summary {
 		})
 	}
 	return summaries
+}
+
+func frameStat(stacks []*util.Stack) {
+	frames := make(map[string]int)
+
+	for _, s := range stacks {
+		for _, f := range s.Frames {
+			frames[fmt.Sprintf("%s:%d\n%s", f.File, f.Line, f.Function)]++
+		}
+	}
+
+	type frameCount struct {
+		Line  string
+		Count int
+	}
+
+	var fcs []frameCount
+	for k, v := range frames {
+		fcs = append(fcs, frameCount{
+			Line:  k,
+			Count: v,
+		})
+	}
+
+	sort.Slice(fcs, func(i, j int) bool {
+		return fcs[i].Count < fcs[j].Count
+	})
+
+	for _, fc := range fcs {
+		fmt.Printf("%s\t%d\n", fc.Line, fc.Count)
+	}
+}
+
+func runRepl(input []*util.Stack) {
+	bynumber := make(map[int]*util.Stack)
+	for _, i := range input {
+		bynumber[i.Number] = i
+	}
+
+	stk := [][]*util.Stack{input}
+	ops := []string{"."}
+
+	cur := input
+
+	f := &defaultFormatter{}
+
+	scan := bufio.NewScanner(os.Stdin)
+	fmt.Print("stackparse> ")
+	for scan.Scan() {
+		parts := strings.Split(scan.Text(), " ")
+		switch parts[0] {
+		case "fm", "frame-match":
+
+			var filters []util.Filter
+			for _, p := range parts[1:] {
+				filters = append(filters, util.HasFrameMatching(strings.TrimSpace(p)))
+			}
+
+			cur = util.ApplyFilters(cur, filters)
+			stk = append(stk, cur)
+			ops = append(ops, scan.Text())
+
+		case "fnm", "frame-not-match":
+			var filters []util.Filter
+			for _, p := range parts[1:] {
+				filters = append(filters, util.Negate(util.HasFrameMatching(strings.TrimSpace(p))))
+			}
+
+			cur = util.ApplyFilters(cur, filters)
+			stk = append(stk, cur)
+			ops = append(ops, scan.Text())
+		case "summary", "sum":
+			err := f.formatSummaries(os.Stdout, summarize(cur))
+			if err != nil {
+				fmt.Println(err)
+			}
+		case "show", "p", "print":
+			if len(parts) > 1 {
+				num, err := strconv.Atoi(parts[1])
+				if err != nil {
+					fmt.Println(err)
+					goto end
+				}
+				s, ok := bynumber[num]
+				if !ok {
+					fmt.Println("no stack found with that number")
+					goto end
+				}
+				f.formatStacks(os.Stdout, []*util.Stack{s})
+			} else {
+				f.formatStacks(os.Stdout, cur)
+			}
+		case "diff":
+			for i, op := range ops {
+				fmt.Printf("%d (%d): %s\n", i, len(stk[i]), op)
+			}
+		case "pop":
+			if len(stk) > 1 {
+				stk = stk[:len(stk)-1]
+				ops = ops[:len(ops)-1]
+
+				cur = stk[len(stk)-1]
+			}
+		case "framestat":
+			frameStat(cur)
+		}
+
+	end:
+		fmt.Print("stackparse> ")
+	}
 }
