@@ -17,6 +17,7 @@ type Stack struct {
 	WaitTime     time.Duration
 	Frames       []Frame
 	ThreadLocked bool
+	CreatedBy    CreatedBy
 }
 
 func (s *Stack) Print() {
@@ -29,6 +30,7 @@ func (s *Stack) Print() {
 	for _, f := range s.Frames {
 		f.Print()
 	}
+	s.CreatedBy.Print()
 
 	fmt.Println()
 }
@@ -46,6 +48,22 @@ func (f *Frame) Print() {
 	fmt.Printf("\t%s:%d", f.File, f.Line)
 	if f.Entry != 0 {
 		fmt.Printf(" %+#x", f.Entry)
+	}
+	fmt.Println()
+}
+
+type CreatedBy struct {
+	Function string
+	File     string
+	Line     int64
+	Entry    int64
+}
+
+func (c *CreatedBy) Print() {
+	fmt.Printf("created by %s\n", c.Function)
+	fmt.Printf("\t%s:%d", c.File, c.Line)
+	if c.Entry != 0 {
+		fmt.Printf(" %+#x", c.Entry)
 	}
 	fmt.Println()
 }
@@ -188,7 +206,22 @@ func ParseStacks(r io.Reader, linePrefix string) (_ []*Stack, _err error) {
 			continue
 		}
 
-		if frame == nil {
+		if strings.HasPrefix(line, "created by") {
+			fn := strings.TrimPrefix(line, "created by ")
+			if !scan.Scan() {
+				return nil, fmt.Errorf("no file info after 'created by' line on line %d", lineNo)
+			}
+			file, line, entry, err := parseEntryLine(scan.Text())
+			if err != nil {
+				return nil, err
+			}
+			cur.CreatedBy = CreatedBy{
+				Function: fn,
+				File:     file,
+				Line:     line,
+				Entry:    entry,
+			}
+		} else if frame == nil {
 			frame = &Frame{
 				Function: line,
 			}
@@ -200,35 +233,43 @@ func ParseStacks(r io.Reader, linePrefix string) (_ []*Stack, _err error) {
 			}
 
 		} else {
-			parts := strings.Split(line, ":")
-			frame.File = strings.Trim(parts[0], " \t\n")
-			if len(parts) != 2 {
-				return nil, fmt.Errorf("expected a colon: %q", line)
-			}
-
-			var err error
-			lineAndEntry := strings.Split(parts[1], " ")
-			frame.Line, err = strconv.ParseInt(lineAndEntry[0], 0, 64)
+			file, line, entry, err := parseEntryLine(line)
 			if err != nil {
-				return nil, fmt.Errorf("error parsing line number: %s", line)
+				return nil, err
 			}
-			if len(lineAndEntry) > 1 {
-				frame.Entry, err = strconv.ParseInt(lineAndEntry[1], 0, 64)
-				if err != nil {
-					return nil, fmt.Errorf("error parsing entry offset: %s", line)
-				}
-			}
-
+			frame.File = file
+			frame.Line = line
+			frame.Entry = entry
 			cur.Frames = append(cur.Frames, *frame)
 			frame = nil
 		}
 	}
-
 	if cur != nil {
 		stacks = append(stacks, cur)
 	}
 
 	return stacks, nil
+}
+
+func parseEntryLine(s string) (file string, line int64, entry int64, err error) {
+	parts := strings.Split(s, ":")
+	file = strings.Trim(parts[0], " \t\n")
+	if len(parts) != 2 {
+		return "", 0, 0, fmt.Errorf("expected a colon: %q", line)
+	}
+
+	lineAndEntry := strings.Split(parts[1], " ")
+	line, err = strconv.ParseInt(lineAndEntry[0], 0, 64)
+	if err != nil {
+		return "", 0, 0, fmt.Errorf("error parsing line number: %s", lineAndEntry[0])
+	}
+	if len(lineAndEntry) > 1 {
+		entry, err = strconv.ParseInt(lineAndEntry[1], 0, 64)
+		if err != nil {
+			return "", 0, 0, fmt.Errorf("error parsing entry offset: %s", lineAndEntry[1])
+		}
+	}
+	return
 }
 
 type StackCompFunc func(a, b *Stack) bool
