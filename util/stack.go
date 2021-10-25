@@ -18,6 +18,7 @@ type Stack struct {
 	Frames       []Frame
 	ThreadLocked bool
 	CreatedBy    CreatedBy
+	FramesElided bool
 }
 
 func (s *Stack) String() string {
@@ -70,6 +71,24 @@ func (c *CreatedBy) String() string {
 		sb.WriteString(fmt.Sprintf(" %+#x", c.Entry))
 	}
 	return sb.String()
+}
+
+func (f *Frame) FrameKey() string {
+	return fmt.Sprintf("%s", f.Function)
+}
+
+func (s *Stack) Sameish(os *Stack) bool {
+	if len(s.Frames) != len(os.Frames) {
+		return false
+	}
+
+	for i := 0; i < len(s.Frames); i++ {
+		if s.Frames[i].Function != os.Frames[i].Function {
+			return false
+		}
+	}
+
+	return true
 }
 
 type Filter func(s *Stack) bool
@@ -226,6 +245,11 @@ func ParseStacks(r io.Reader, linePrefix string) (_ []*Stack, _err error) {
 				Entry:    entry,
 			}
 		} else if frame == nil {
+			if strings.Contains(line, "...additional frames elided...") {
+				cur.FramesElided = true
+				continue
+			}
+
 			frame = &Frame{
 				Function: line,
 			}

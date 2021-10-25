@@ -126,9 +126,10 @@ func main() {
 				}
 			case "--summary", "-s":
 				outputType = "summary"
-
 			case "--json", "-j":
 				formatType = "json"
+			case "--suspicious", "--sus":
+				outputType = "sus"
 			}
 		} else {
 			fname = a
@@ -179,6 +180,8 @@ func main() {
 		formatErr = f.formatStacks(os.Stdout, stacks)
 	case "summary":
 		formatErr = f.formatSummaries(os.Stdout, summarize(stacks))
+	case "sus":
+		suspiciousCheck(util.ApplyFilters(stacks, filters))
 	default:
 		fmt.Println("unrecognized output type: ", outputType)
 		os.Exit(1)
@@ -262,6 +265,112 @@ func summarize(stacks []*util.Stack) []summary {
 	return summaries
 }
 
+type framecount struct {
+	frameKey string
+	count    int
+}
+
+// work in progress, trying to come up with an algorithm to point out suspicious stacks
+func suspiciousCheck(stacks []*util.Stack) {
+	sharedFrames := make(map[string][]*util.Stack)
+
+	for _, s := range stacks {
+		for _, f := range s.Frames {
+			fk := f.FrameKey()
+			sharedFrames[fk] = append(sharedFrames[fk], s)
+		}
+	}
+
+	var fcs []framecount
+	for k, v := range sharedFrames {
+		fcs = append(fcs, framecount{
+			frameKey: k,
+			count:    len(v),
+		})
+	}
+
+	sort.Slice(fcs, func(i, j int) bool {
+		return fcs[i].count > fcs[j].count
+	})
+
+	for i := 0; i < 20; i++ {
+		fmt.Printf("%s - %d\n", fcs[i].frameKey, fcs[i].count)
+	}
+
+	for i := 0; i < 5; i++ {
+		fmt.Println("-------- FRAME SUS STAT ------")
+		fmt.Printf("%s - %d\n", fcs[i].frameKey, fcs[i].count)
+
+		sf := sharedFrames[fcs[i].frameKey]
+
+		printUnique(sf)
+	}
+}
+
+func printUnique(stacks []*util.Stack) {
+	var ftypes []*util.Stack
+	var bucketed [][]*util.Stack
+	for _, s := range stacks {
+		var found bool
+		for x, ft := range ftypes {
+			if s.Sameish(ft) {
+				bucketed[x] = append(bucketed[x], s)
+				found = true
+			}
+		}
+
+		if !found {
+			ftypes = append(ftypes, s)
+			bucketed = append(bucketed, []*util.Stack{s})
+		}
+	}
+
+	for x, ft := range ftypes {
+		fmt.Println("count: ", len(bucketed[x]))
+		fmt.Println("average wait: ", compWaitStats(bucketed[x]).String())
+		fmt.Println(ft.String())
+		fmt.Println()
+	}
+}
+
+type waitStats struct {
+	Average time.Duration
+	Max     time.Duration
+	Min     time.Duration
+	Median  time.Duration
+}
+
+func (ws waitStats) String() string {
+	return fmt.Sprintf("av/min/max/med: %s/%s/%s/%s\n", ws.Average, ws.Min, ws.Max, ws.Median)
+}
+
+func compWaitStats(stacks []*util.Stack) waitStats {
+	var durations []time.Duration
+	var min, max, sum time.Duration
+	for _, s := range stacks {
+		if min == 0 || s.WaitTime < min {
+			min = s.WaitTime
+		}
+		if s.WaitTime > max {
+			max = s.WaitTime
+		}
+
+		sum += s.WaitTime
+		durations = append(durations, s.WaitTime)
+	}
+
+	sort.Slice(durations, func(i, j int) bool {
+		return durations[i] < durations[j]
+	})
+
+	return waitStats{
+		Average: sum / time.Duration(len(durations)),
+		Max:     max,
+		Min:     min,
+		Median:  durations[len(durations)/2],
+	}
+}
+
 func frameStat(stacks []*util.Stack) {
 	frames := make(map[string]int)
 
@@ -331,7 +440,7 @@ func runRepl(input []*util.Stack) {
 			cur = util.ApplyFilters(cur, filters)
 			stk = append(stk, cur)
 			ops = append(ops, scan.Text())
-		case "summary", "sum":
+		case "s", "summary", "sum":
 			err := f.formatSummaries(os.Stdout, summarize(cur))
 			if err != nil {
 				fmt.Println(err)
@@ -363,8 +472,13 @@ func runRepl(input []*util.Stack) {
 
 				cur = stk[len(stk)-1]
 			}
+		case "sus":
+			// WIP!!!
+			suspiciousCheck(cur)
 		case "framestat":
 			frameStat(cur)
+		case "unique", "uu":
+			printUnique(cur)
 		}
 
 	end:
